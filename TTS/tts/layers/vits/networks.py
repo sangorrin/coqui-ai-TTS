@@ -1,3 +1,4 @@
+# pylint: disable=line-too-long, missing-module-docstring, missing-class-docstring
 import math
 
 import torch
@@ -21,7 +22,7 @@ class TextEncoder(nn.Module):
         num_layers: int,
         kernel_size: int,
         dropout_p: float,
-        language_emb_dim: int = None,
+        language_emb_dim: int | None = None,
     ):
         """Text Encoder for VITS model.
 
@@ -82,6 +83,99 @@ class TextEncoder(nn.Module):
 
         m, logs = torch.split(stats, self.out_channels, dim=1)
         return x, m, logs, x_mask
+
+
+class PriorEncoder(nn.Module):
+    """Prior Encoder for Native TTS - encodes MFA phonemes + F0."""
+
+    def __init__(
+        self,
+        n_vocab: int,
+        out_channels: int,
+        hidden_channels: int,
+        hidden_channels_ffn: int,
+        num_heads: int,
+        num_layers: int,
+        kernel_size: int,
+        dropout_p: float,
+        f0_embedding_dim: int = 1,
+    ):
+        """Prior Encoder for Native TTS model.
+        Encodes MFA-aligned phonemes conditioned on F0 embeddings.
+
+        Args:
+            n_vocab (int): Number of phonemes in the vocabulary.
+            out_channels (int): Number of channels for the output.
+            hidden_channels (int): Number of channels for the hidden layers.
+            hidden_channels_ffn (int): Number of channels for the convolutional layers.
+            num_heads (int): Number of attention heads for the Transformer layers.
+            num_layers (int): Number of Transformer layers.
+            kernel_size (int): Kernel size for the FFN layers in Transformer network.
+            dropout_p (float): Dropout rate for the Transformer layers.
+            f0_embedding_dim (int): Dimension of F0 embeddings. Defaults to 1.
+        """
+        super().__init__()
+        self.out_channels = out_channels
+        self.hidden_channels = hidden_channels
+
+        # Phoneme embedding
+        self.emb = nn.Embedding(n_vocab, hidden_channels)
+        nn.init.normal_(self.emb.weight, 0.0, hidden_channels**-0.5)
+
+        # F0 embedding - project F0 features to embedding space
+        self.f0_emb = nn.Conv1d(1, f0_embedding_dim, 1)
+
+        # Concatenate phoneme and F0 embeddings
+        transformer_in_channels = hidden_channels + f0_embedding_dim
+
+        self.encoder = RelativePositionTransformer(
+            in_channels=transformer_in_channels,
+            out_channels=transformer_in_channels,
+            hidden_channels=transformer_in_channels,
+            hidden_channels_ffn=hidden_channels_ffn,
+            num_heads=num_heads,
+            num_layers=num_layers,
+            kernel_size=kernel_size,
+            dropout_p=dropout_p,
+            layer_norm_type="2",
+            rel_attn_window_size=4,
+        )
+
+        self.proj = nn.Conv1d(transformer_in_channels, out_channels * 2, 1)
+
+    def forward(self, x, x_lengths, f0=None):
+        """Forward pass.
+
+        Args:
+            x: MFA-aligned phoneme IDs [B, T]
+            x_lengths: Sequence lengths [B]
+            f0: F0 features [B, 1, T]
+
+        Returns:
+            Tuple of (m, logs, x_mask) - we don't return hidden states
+        """
+        assert x.shape[0] == x_lengths.shape[0]
+
+        # Embed phonemes
+        x = self.emb(x) * math.sqrt(self.hidden_channels)  # [b, t, h]
+        x = torch.transpose(x, 1, -1)  # [b, h, t]
+
+        # Embed F0
+        if f0 is not None:
+            f0_emb = self.f0_emb(f0)  # [b, f0_emb_dim, t]
+            x = torch.cat([x, f0_emb], dim=1)  # [b, h + f0_emb_dim, t]
+
+        # Create mask
+        x_mask = torch.unsqueeze(sequence_mask(x_lengths, x.size(2)), 1).to(x.dtype)  # [b, 1, t]
+
+        # Transformer encoding
+        x = self.encoder(x * x_mask, x_mask)
+        stats = self.proj(x) * x_mask
+
+        m, logs = torch.split(stats, self.out_channels, dim=1)
+
+        # Return only stats, not hidden representation
+        return m, logs, x_mask
 
 
 class ResidualCouplingBlock(nn.Module):
