@@ -2,6 +2,7 @@
 
 import logging
 import os
+import random
 from dataclasses import dataclass, field
 from itertools import chain
 from typing import Any
@@ -12,7 +13,7 @@ import torch.distributed as dist
 import torchaudio
 from coqpit import Coqpit
 from torch import nn
-from torch.utils.data import DataLoader
+from torch.utils.data import DataLoader, Dataset
 from torch.utils.data.sampler import WeightedRandomSampler
 from trainer.torch import DistributedSampler, DistributedSamplerWrapper
 from trainer.trainer_utils import get_optimizer, get_scheduler
@@ -68,79 +69,220 @@ class NativeTTSAudioConfig(Coqpit):
 ##############################
 
 
-class NativeTTSDataset(TTSDataset):
-    """Dataset for Native TTS that loads preprocessed MFA, F0, and speaker embeddings."""
+class NativeTTSDataset(Dataset):
+    """Dataset for Native TTS that loads preprocessed MFA, F0, and speaker embeddings.
 
-    def __init__(self, model_args, *args, **kwargs):
-        super().__init__(*args, **kwargs)
+    This is a standalone dataset that doesn't inherit from TTSDataset since Native TTS
+    has fundamentally different requirements (no tokenizer, pre-aligned data, etc.).
+    """
+
+    def __init__(
+        self,
+        model_args,
+        samples,
+        batch_group_size=0,
+        min_text_len=0,
+        max_text_len=float("inf"),
+        min_audio_len=0,
+        max_audio_len=float("inf"),
+        phoneme_cache_path=None,  # Not used but kept for compatibility
+        precompute_num_workers=0,  # Not used but kept for compatibility
+        tokenizer=None,  # Not used but kept for compatibility
+        start_by_longest=False,
+    ):
+        super().__init__()
+
         self.model_args = model_args
+        self._samples = samples
+        self.batch_group_size = batch_group_size
+        # Rename for clarity - these actually filter phoneme sequences in Native TTS
+        self.min_phoneme_len = min_text_len  # min_text_len actually means min phoneme length
+        self.max_phoneme_len = max_text_len  # max_text_len actually means max phoneme length
+        self.min_audio_len = min_audio_len
+        self.max_audio_len = max_audio_len
+        self.start_by_longest = start_by_longest
+
+    @property
+    def samples(self):
+        return self._samples
+
+    @samples.setter
+    def samples(self, new_samples):
+        self._samples = new_samples
+
+    def __len__(self):
+        return len(self.samples)
+
+    def preprocess_samples(self):
+        """Preprocessing for Native TTS dataset - filter and sort samples."""
+
+        def get_audio_size(audiopath):
+            """Return the number of samples in the audio file."""
+            try:
+                return torchaudio.info(audiopath).num_frames
+            except RuntimeError:
+                logger.warning("Failed to compute length, skipping %s", audiopath)
+                return 0
+
+        def get_phoneme_length(mfa_file):
+            """Get phoneme sequence length from MFA file."""
+            try:
+                if os.path.exists(mfa_file):
+                    phonemes = np.load(mfa_file)
+                    return len(phonemes)
+                else:
+                    return 0
+            except Exception:
+                return 0
+
+        # Compute lengths for all samples
+        new_samples = []
+        for item in self.samples:
+            try:
+                audio_length = get_audio_size(item["audio_file"])
+                if audio_length == 0:
+                    continue
+            except RuntimeError:
+                logger.warning("Failed to compute audio length, skipping %s", item["audio_file"])
+                continue
+
+            # Get phoneme sequence length from MFA file
+            mfa_file = item.get("mfa_file")
+            if not mfa_file:
+                logger.warning("No MFA file for %s, skipping", item["audio_file"])
+                continue
+
+            phoneme_length = get_phoneme_length(mfa_file)
+            if phoneme_length == 0:
+                logger.warning("Invalid phoneme length for %s, skipping", item["audio_file"])
+                continue
+
+            item["audio_length"] = audio_length
+            item["phoneme_length"] = phoneme_length
+            new_samples.append(item)
+
+        samples = new_samples
+
+        # Filter by length
+        phoneme_lengths = [i["phoneme_length"] for i in samples]
+        audio_lengths = [i["audio_length"] for i in samples]
+
+        # Collect indices to keep
+        keep_idx = []
+        for idx, (phn_len, aud_len) in enumerate(zip(phoneme_lengths, audio_lengths)):
+            if (self.min_phoneme_len <= phn_len <= self.max_phoneme_len and
+                self.min_audio_len <= aud_len <= self.max_audio_len):
+                keep_idx.append(idx)
+
+        samples = [samples[idx] for idx in keep_idx]
+
+        if len(samples) == 0:
+            raise RuntimeError("No samples left after filtering.")
+
+        # Sort by audio length
+        samples = sorted(samples, key=lambda x: x["audio_length"])
+
+        if self.start_by_longest:
+            # Move longest to beginning
+            samples = [samples[-1]] + samples[:-1]
+
+        # Create buckets for batch grouping
+        if self.batch_group_size > 0:
+            for i in range(len(samples) // self.batch_group_size):
+                offset = i * self.batch_group_size
+                end_offset = offset + self.batch_group_size
+                temp_items = samples[offset:end_offset]
+                random.shuffle(temp_items)
+                samples[offset:end_offset] = temp_items
+
+        # Update samples
+        self.samples = samples
+
+        # Log statistics
+        audio_lengths = [s["audio_length"] for s in samples]
+        phoneme_lengths = [s["phoneme_length"] for s in samples]
+
+        logger.info("Preprocessing Native TTS samples")
+        logger.info("Total samples after filtering: %d", len(samples))
+        logger.info("Max audio length: %.2f", np.max(audio_lengths))
+        logger.info("Min audio length: %.2f", np.min(audio_lengths))
+        logger.info("Avg audio length: %.2f", np.mean(audio_lengths))
+        logger.info("Max phoneme length: %d", np.max(phoneme_lengths))
+        logger.info("Min phoneme length: %d", np.min(phoneme_lengths))
+        logger.info("Avg phoneme length: %.2f", np.mean(phoneme_lengths))
+        logger.info("Batch group size: %d", self.batch_group_size)
 
     def __getitem__(self, idx):
         """Get a single sample - Native TTS requires MFA, F0, and ECAPA embeddings."""
         if self.samples is None:
             raise RuntimeError("Dataset samples not initialized")
 
+        # Handle index out of bounds
+        if idx >= len(self.samples):
+            idx = idx % len(self.samples)
+
         item = self.samples[idx]
         wav_filename = os.path.basename(item["audio_file"])
 
-        # Load audio
-        wav, _ = load_audio(item["audio_file"])
+        try:
+            # Load audio
+            wav, _ = load_audio(item["audio_file"])
 
-        # Load MFA-aligned phonemes (required)
-        mfa_path = item.get("mfa_file", None)
-        if not mfa_path or not os.path.exists(mfa_path):
-            raise FileNotFoundError(
-                f"MFA alignment not found: {mfa_path}\n"
-                f"Native TTS requires MFA-aligned phonemes at 20ms frames."
-            )
+            # Load MFA-aligned phonemes (required)
+            mfa_path = item.get("mfa_file", None)
+            if not mfa_path or not os.path.exists(mfa_path):
+                raise FileNotFoundError(
+                    f"MFA alignment not found: {mfa_path}\n"
+                    f"Native TTS requires MFA-aligned phonemes at 20ms frames."
+                )
 
-        token_ids = np.load(mfa_path).tolist()
+            token_ids = np.load(mfa_path).tolist()
 
-        # Load F0 (required, must match phoneme length)
-        f0_path = item.get("f0_file", None)
-        if not f0_path or not os.path.exists(f0_path):
-            raise FileNotFoundError(
-                f"F0 file not found: {f0_path}\n"
-                f"Run f0_20ms_batch.py from ac_playground to extract F0."
-            )
+            # Load F0 (required, must match phoneme length)
+            f0_path = item.get("f0_file", None)
+            if not f0_path or not os.path.exists(f0_path):
+                raise FileNotFoundError(
+                    f"F0 file not found: {f0_path}\n"
+                    f"Run f0_20ms_batch.py from ac_playground to extract F0."
+                )
 
-        f0 = np.load(f0_path)
+            f0 = np.load(f0_path)
 
-        if len(f0) != len(token_ids):
-            raise ValueError(
-                f"{wav_filename}: MFA={len(token_ids)} frames, F0={len(f0)} frames.\n"
-                f"Run fix_phones_lengths.py to align them."
-            )
+            if len(f0) != len(token_ids):
+                raise ValueError(
+                    f"{wav_filename}: MFA={len(token_ids)} frames, F0={len(f0)} frames.\n"
+                    f"Run fix_phones_lengths.py to align them."
+                )
 
-        # Load ECAPA speaker embedding (required, 192-dim)
-        spk_emb_path = item.get("speaker_emb_file", None)
-        if not spk_emb_path or not os.path.exists(spk_emb_path):
-            raise FileNotFoundError(
-                f"Speaker embedding not found: {spk_emb_path}\n"
-                f"Native TTS requires 192-dim ECAPA-TDNN embeddings."
-            )
+            # Load ECAPA speaker embedding (required, 192-dim)
+            spk_emb_path = item.get("speaker_emb_file", None)
+            if not spk_emb_path or not os.path.exists(spk_emb_path):
+                raise FileNotFoundError(
+                    f"Speaker embedding not found: {spk_emb_path}\n"
+                    f"Native TTS requires 192-dim ECAPA-TDNN embeddings."
+                )
 
-        speaker_emb = np.load(spk_emb_path)
-        if speaker_emb.shape[0] != 192:
-            raise ValueError(
-                f"{wav_filename}: Expected 192-dim ECAPA, got {speaker_emb.shape[0]}"
-            )
+            speaker_emb = np.load(spk_emb_path)
+            if speaker_emb.shape[0] != 192:
+                raise ValueError(
+                    f"{wav_filename}: Expected 192-dim ECAPA, got {speaker_emb.shape[0]}"
+                )
 
-        # Check length constraints
-        if len(token_ids) > self.max_text_len or wav.shape[1] < self.min_audio_len:
-            self.rescue_item_idx += 1
-            return self.__getitem__(self.rescue_item_idx)
+            return {
+                "token_ids": token_ids,
+                "token_len": len(token_ids),
+                "wav": wav,
+                "wav_file": wav_filename,
+                "speaker_name": item["speaker_name"],
+                "audio_unique_name": item["audio_unique_name"],
+                "f0": f0,
+                "speaker_emb": speaker_emb,
+            }
 
-        return {
-            "token_ids": token_ids,
-            "token_len": len(token_ids),
-            "wav": wav,
-            "wav_file": wav_filename,
-            "speaker_name": item["speaker_name"],
-            "audio_unique_name": item["audio_unique_name"],
-            "f0": f0,
-            "speaker_emb": speaker_emb,
-        }
+        except Exception as e:
+            # If there's an error loading this sample, try the next one
+            logger.warning("Error loading sample %s: %s. Trying next sample.", wav_filename, str(e))
+            return self.__getitem__((idx + 1) % len(self.samples))
 
     def collate_fn(self, batch):
         """Collate for Native TTS - minimal padding (MFA+F0 pre-aligned)."""
@@ -184,7 +326,7 @@ class NativeTTSDataset(TTSDataset):
             f0 = batch["f0"][i]
             if len(f0) != phone_len:
                 raise RuntimeError(
-                    f"F0 length mismatch in batch item {i} ({batch['audio_unique_names'][i]}): "
+                    f"F0 length mismatch in batch item {i} ({batch['audio_unique_name'][i]}): "
                     f"F0={len(f0)}, phonemes={phone_len}. Data corruption?"
                 )
             f0_padded[i, :phone_len] = torch.FloatTensor(f0)
