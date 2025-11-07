@@ -142,6 +142,9 @@ class PriorEncoder(nn.Module):
         )
 
         self.proj = nn.Conv1d(transformer_in_channels, out_channels * 2, 1)
+        # Initialize projection layer to avoid NaN outputs
+        nn.init.normal_(self.proj.weight, 0.0, 0.01)
+        nn.init.constant_(self.proj.bias, 0.0)
 
     def forward(self, x, x_lengths, f0=None):
         """Forward pass.
