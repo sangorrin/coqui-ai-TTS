@@ -692,10 +692,21 @@ class VitsGeneratorLoss(nn.Module):
         logs_p = logs_p.float()
         z_mask = z_mask.float()
 
+        # Debug: check for NaN/inf in inputs
+        if torch.isnan(logs_p).any() or torch.isinf(logs_p).any():
+            print(f"WARNING: logs_p has NaN/inf! nan count: {torch.isnan(logs_p).sum()}, inf count: {torch.isinf(logs_p).sum()}")
+        if torch.isnan(logs_q).any() or torch.isinf(logs_q).any():
+            print(f"WARNING: logs_q has NaN/inf! nan count: {torch.isnan(logs_q).sum()}, inf count: {torch.isinf(logs_q).sum()}")
+
+        mask_sum = torch.sum(z_mask)
+        if mask_sum == 0:
+            print(f"ERROR: z_mask sum is zero! z_mask shape: {z_mask.shape}")
+            return torch.tensor(0.0, device=z_p.device)
+
         kl = logs_p - logs_q - 0.5
         kl += 0.5 * ((z_p - m_p) ** 2) * torch.exp(-2.0 * logs_p)
         kl = torch.sum(kl * z_mask)
-        l = kl / torch.sum(z_mask)
+        l = kl / mask_sum
         return l
 
     @staticmethod

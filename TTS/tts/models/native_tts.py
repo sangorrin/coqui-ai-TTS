@@ -526,12 +526,6 @@ class NativeTTS(BaseTTS):
         # Posterior encoder: linear spec + speaker → posterior distribution
         z, m_q, logs_q, y_mask = self.posterior_encoder(y, y_lengths, g=g)
 
-        # DEBUG: Check dimensions match
-        if m_p.shape[2] != z.shape[2]:
-            print(f"ERROR: m_p shape {m_p.shape} != z shape {z.shape}")
-            print(f"x_lengths: {x_lengths}, y_lengths: {y_lengths}")
-            print(f"x shape: {x.shape}, y shape: {y.shape}")
-
         # Flow: posterior → prior space
         z_p = self.flow(z, y_mask, g=g)
 
