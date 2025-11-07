@@ -701,6 +701,14 @@ class NativeTTS(BaseTTS):
 
         raise ValueError(" [!] Unexpected `optimizer_idx`.")
 
+    def format_batch(self, batch: dict) -> dict:
+        """Format batch for Native TTS - just pass through, no transformation needed.
+
+        Native TTS uses a custom batch format from NativeTTSDataset.collate_fn,
+        so we don't need the base class formatting.
+        """
+        return batch
+
     @torch.inference_mode()
     def format_batch_on_device(self, batch):
         """Compute LINEAR spectrograms on device (Native TTS uses x_lin, not mel)."""
