@@ -241,6 +241,9 @@ class NativeTTSDataset(Dataset):
 
             f0 = np.load(f0_path)
 
+            # Replace NaN values in F0 (unvoiced segments) with 0.0
+            f0 = np.nan_to_num(f0, nan=0.0)
+
             if len(f0) != len(token_ids):
                 raise ValueError(
                     f"{wav_filename}: MFA={len(token_ids)} frames, F0={len(f0)} frames.\n"
@@ -518,22 +521,10 @@ class NativeTTS(BaseTTS):
         if f0.dim() == 2:
             f0 = f0.unsqueeze(1)  # [B, T] → [B, 1, T]
 
-        # Debug: Check F0 for NaN
-        if torch.isnan(f0).any():
-            print(f"ERROR: F0 contains NaN! nan count: {torch.isnan(f0).sum()}")
-
         # Prior encoder: MFA phonemes + F0 → prior distribution
         # Returns (x, m, logs, x_mask) like VITS TextEncoder
         # We ignore x and x_mask since Native TTS doesn't use MAS/duration predictor
-        _, m_p, logs_p, _ = self.prior_encoder(x, x_lengths, f0=f0)
-
-        # Debug: Check outputs for NaN
-        if torch.isnan(m_p).any():
-            print(f"ERROR: m_p from PriorEncoder contains NaN! nan count: {torch.isnan(m_p).sum()}")
-        if torch.isnan(logs_p).any():
-            print(f"ERROR: logs_p from PriorEncoder contains NaN! nan count: {torch.isnan(logs_p).sum()}")
-
-        # Posterior encoder: linear spec + speaker → posterior distribution
+        _, m_p, logs_p, _ = self.prior_encoder(x, x_lengths, f0=f0)        # Posterior encoder: linear spec + speaker → posterior distribution
         z, m_q, logs_q, y_mask = self.posterior_encoder(y, y_lengths, g=g)
 
         # Flow: posterior → prior space
