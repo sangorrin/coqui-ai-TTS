@@ -696,7 +696,9 @@ class VitsGeneratorLoss(nn.Module):
         kl += 0.5 * ((z_p - m_p) ** 2) * torch.exp(-2.0 * logs_p)
         kl = torch.sum(kl * z_mask)
         l = kl / torch.sum(z_mask)
-        return l    @staticmethod
+        return l
+
+    @staticmethod
     def cosine_similarity_loss(gt_spk_emb, syn_spk_emb):
         return -torch.nn.functional.cosine_similarity(gt_spk_emb, syn_spk_emb).mean()
 
