@@ -237,7 +237,7 @@ class NativeTTSArgs(Coqpit):
     num_layers_prior: int = 6
     kernel_size_prior: int = 3
     dropout_p_prior: float = 0.1
-    f0_embedding_dim: int = 1  # F0 scalar (VQMIVC default)
+    f0_embedding_dim: int = 2  # F0 embedding (changed from 1 to make 194 channels divisible by 2 heads)
 
     # Posterior Encoder (linear spec + speaker → posterior distribution)
     kernel_size_posterior_encoder: int = 5

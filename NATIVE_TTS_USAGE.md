@@ -12,24 +12,70 @@ Native TTS is used in a multi-phase workflow:
 
 This guide covers **Phase 1** and **Phase 2**.
 
+## Runpod Setup
+
+Deploy a Runpod instance with an RTX 4090 GPU and attach the network
+volume at `/dataset` by modifying the template. Set the pod SSD disk
+size to 200GB. SSH into the instance and copy the augmented data (13GB) from
+the network volume (`/dataset/augmented_data`) to the SSD (`/workspace`).
+It takes about 10 minutes.
+```bash
+pod# ssh runpod-1
+pod# cd /dataset
+pod# cp -R augmented_data /workspace
+```
+
+Clone the forked coqui repository with the accent_changer branch:
+```bash
+pod# cd /workspace
+pod# git clone -b accent_changer https://github.com/sangorrin/coqui-ai-TTS.git
+pod# cd coqui-ai-TTS
+```
+
+Install system dependencies:
+```bash
+pod# apt-get update && apt-get upgrade -y
+pod# apt-get install -y --no-install-recommends \
+    gcc g++ make python3 python3-dev \
+    espeak-ng libsndfile1-dev libc-dev \
+    screen tree
+```
+
+Install Python packages:
+```bash
+pod# uv venv /workspace/accent_changer --system-site-packages
+pod# source /workspace/accent_changer/bin/activate
+pod# uv pip install -e .[all]
+```
+
+Start screen session and activate the environment.
+```bash
+pod# screen -S session
+  # Detach: Ctrl + A, then D
+  # Reattach: screen -r session
+pod# source /workspace/accent_changer/bin/activate
+```
+
+Perform a sanity check
+```bash
+pod# cd /workspace
+pod# git clone https://github.com/sangorrin/ac_playground.git
+pod# python /workspace/ac_playground/check_features_20ms.py \
+    --wav-dir /workspace/augmented_data/wavs_16k \
+    --phones-dir /workspace/augmented_data/mfa_alignments \
+    --f0-dir /workspace/augmented_data/f0_features \
+    --spk-embeds-dir /workspace/augmented_data/speaker_embeddings \
+    --report /workspace/sanity_report.csv \
+    --limit 0 \
+    --workers 32
+```
+
 ## Phase 1: Training Native TTS
-
-### Prerequisites
-
-- Preprocessed augmented dataset (see [NATIVE_TTS_IMPLEMENTATION.md](NATIVE_TTS_IMPLEMENTATION.md))
-- Required directory structure:
-  ```
-  /workspace/augmented_data/
-    ├── wavs_16k/
-    ├── mfa_alignments/
-    ├── f0_features/
-    └── speaker_embeddings/
-  ```
 
 ### Training Command
 
 ```bash
-cd recipes/ljspeech/vits_tts
+cd /workspace/coqui-ai-TTS/recipes/ljspeech/vits_tts
 
 python train_native_tts.py \
   --data_path /workspace/augmented_data \

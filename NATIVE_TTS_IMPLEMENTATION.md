@@ -97,7 +97,7 @@ All parameters are documented inline in `native_tts.py` showing their relationsh
   - `dropout_p_prior=0.1` (was dropout_p_text_encoder)
 
 **New for Native TTS:**
-- `f0_embedding_dim=1` - Scalar F0 conditioning (VQMIVC [23] default approach)
+- `f0_embedding_dim=2` - Scalar F0 conditioning (VQMIVC [23] was 1 or 64, 192 plus this must be divisible by 2 num_heads)
 - `embedded_speaker_dim=192` - Fixed ECAPA-TDNN dimension
 
 **Removed from VITS:**

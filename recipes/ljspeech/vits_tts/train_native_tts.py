@@ -104,6 +104,7 @@ def native_tts_formatter(root_path, meta_file=None, **kwargs):  # pylint: disabl
                 "speaker_name": speaker_id,
                 "text": "",  # No text needed
                 "audio_unique_name": basename,
+                "root_path": root_path,
             }
         )
 

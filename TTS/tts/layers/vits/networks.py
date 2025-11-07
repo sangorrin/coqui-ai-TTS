@@ -98,7 +98,7 @@ class PriorEncoder(nn.Module):
         num_layers: int,
         kernel_size: int,
         dropout_p: float,
-        f0_embedding_dim: int = 1,
+        f0_embedding_dim: int = 2,
     ):
         """Prior Encoder for Native TTS model.
         Encodes MFA-aligned phonemes conditioned on F0 embeddings.
@@ -112,7 +112,7 @@ class PriorEncoder(nn.Module):
             num_layers (int): Number of Transformer layers.
             kernel_size (int): Kernel size for the FFN layers in Transformer network.
             dropout_p (float): Dropout rate for the Transformer layers.
-            f0_embedding_dim (int): Dimension of F0 embeddings. Defaults to 1.
+            f0_embedding_dim (int): Dimension of F0 embeddings. Defaults to 2.
         """
         super().__init__()
         self.out_channels = out_channels
