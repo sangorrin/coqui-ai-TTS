@@ -174,8 +174,9 @@ class PriorEncoder(nn.Module):
 
         m, logs = torch.split(stats, self.out_channels, dim=1)
 
-        # Return only stats, not hidden representation
-        return m, logs, x_mask
+        # Return (x, m, logs, x_mask) to match VITS TextEncoder interface
+        # Note: Native TTS doesn't use x or x_mask (no MAS), but we return them for compatibility
+        return x, m, logs, x_mask
 
 
 class ResidualCouplingBlock(nn.Module):

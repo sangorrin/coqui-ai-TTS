@@ -519,7 +519,8 @@ class NativeTTS(BaseTTS):
             f0 = f0.unsqueeze(1)  # [B, T] → [B, 1, T]
 
         # Prior encoder: MFA phonemes + F0 → prior distribution
-        # Ignore first return value (hidden representation) - we only need stats
+        # Returns (x, m, logs, x_mask) like VITS TextEncoder
+        # We ignore x and x_mask since Native TTS doesn't use MAS/duration predictor
         _, m_p, logs_p, _ = self.prior_encoder(x, x_lengths, f0=f0)
 
         # Posterior encoder: linear spec + speaker → posterior distribution
@@ -592,6 +593,8 @@ class NativeTTS(BaseTTS):
             f0 = f0.unsqueeze(1)
 
         # Prior encoder with MFA phonemes and F0
+        # Returns (x, m, logs, x_mask) like VITS TextEncoder
+        # We need x_mask for inference but ignore x (no MAS/duration predictor)
         _, m_p, logs_p, x_mask = self.prior_encoder(input, x_lengths, f0=f0)
 
         # Sample from prior
