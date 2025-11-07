@@ -725,9 +725,11 @@ class NativeTTS(BaseTTS):
         # Use token_lens as spec_lens since they're pre-aligned
         batch["spec_lens"] = batch["token_lens"]
 
-        # Trim or pad spec to match token_lens
+        # Trim or pad spec AND waveform to match token_lens
         # The spec might have slight length differences due to waveform length
         max_token_len = batch["token_lens"].max()
+        expected_wav_len = max_token_len * ac.hop_length  # 20ms frames * 320 samples/frame
+
         if spec.shape[2] > max_token_len:
             # Trim spec to match token length
             spec = spec[:, :, :max_token_len]
@@ -736,6 +738,15 @@ class NativeTTS(BaseTTS):
             padding = max_token_len - spec.shape[2]
             spec = torch.nn.functional.pad(spec, (0, padding))
 
+        if wav.shape[1] > expected_wav_len:
+            # Trim waveform to match expected length
+            wav = wav[:, :expected_wav_len]
+        elif wav.shape[1] < expected_wav_len:
+            # Pad waveform to match expected length (rare case)
+            padding = expected_wav_len - wav.shape[1]
+            wav = torch.nn.functional.pad(wav, (0, padding))
+
+        batch["waveform"] = wav
         batch["spec"] = spec
 
         # Zero the padding frames
