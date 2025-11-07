@@ -30,6 +30,8 @@ class NativeTTSConfig(BaseTTSConfig):
     gen_loss_alpha: float = 1.0
     feat_loss_alpha: float = 1.0
     mel_loss_alpha: float = 45.0
+    dur_loss_alpha: float = 0.0  # Duration loss (disabled for Native TTS since no duration prediction)
+    speaker_encoder_loss_alpha: float = 1.0
 
     # data loader params
     return_wav: bool = True
