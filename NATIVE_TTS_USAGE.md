@@ -58,9 +58,9 @@ pod# source /workspace/accent_changer/bin/activate
 
 Perform a sanity check
 ```bash
-pod# cd /workspace
-pod# git clone https://github.com/sangorrin/ac_playground.git
-pod# python /workspace/ac_playground/check_features_20ms.py \
+pod(accent_changer)# cd /workspace
+pod(accent_changer)# git clone https://github.com/sangorrin/ac_playground.git
+pod(accent_changer)# python /workspace/ac_playground/check_features_20ms.py \
     --wav-dir /workspace/augmented_data/wavs_16k \
     --phones-dir /workspace/augmented_data/mfa_alignments \
     --f0-dir /workspace/augmented_data/f0_features \
@@ -75,9 +75,9 @@ pod# python /workspace/ac_playground/check_features_20ms.py \
 ### Training Command
 
 ```bash
-cd /workspace/coqui-ai-TTS/recipes/ljspeech/vits_tts
+pod(accent_changer)# cd /workspace/coqui-ai-TTS/recipes/ljspeech/vits_tts
 
-python train_native_tts.py \
+pod(accent_changer)# python train_native_tts.py \
   --data_path /workspace/augmented_data \
   --vram 24  # Optional: GPU VRAM in GB for auto batch sizing
 ```
