@@ -115,14 +115,7 @@ class NativeTTSDataset(Dataset):
 
     def preprocess_samples(self):
         """Preprocessing for Native TTS dataset - filter and sort samples."""
-
-        def get_audio_size(audiopath):
-            """Return the number of samples in the audio file."""
-            try:
-                return torchaudio.info(audiopath).num_frames
-            except RuntimeError:
-                logger.warning("Failed to compute length, skipping %s", audiopath)
-                return 0
+        logger.info("Preprocessing Native TTS samples...")
 
         def get_phoneme_length(mfa_file):
             """Get phoneme sequence length from MFA file."""
@@ -136,31 +129,31 @@ class NativeTTSDataset(Dataset):
                 return 0
 
         # Compute lengths for all samples
+        # Note: We use phoneme length as a proxy for audio length since they're aligned
+        # This is MUCH faster than scanning 65k audio files with torchaudio.info()
         new_samples = []
-        for item in self.samples:
-            try:
-                audio_length = get_audio_size(item["audio_file"])
-                if audio_length == 0:
-                    continue
-            except RuntimeError:
-                logger.warning("Failed to compute audio length, skipping %s", item["audio_file"])
-                continue
+        logger.info("Loading phoneme lengths from %d samples...", len(self.samples))
+
+        for idx, item in enumerate(self.samples):
+            if idx % 10000 == 0 and idx > 0:
+                logger.info("  Processed %d/%d samples...", idx, len(self.samples))
 
             # Get phoneme sequence length from MFA file
             mfa_file = item.get("mfa_file")
             if not mfa_file:
-                logger.warning("No MFA file for %s, skipping", item["audio_file"])
                 continue
 
             phoneme_length = get_phoneme_length(mfa_file)
             if phoneme_length == 0:
-                logger.warning("Invalid phoneme length for %s, skipping", item["audio_file"])
                 continue
 
-            item["audio_length"] = audio_length
+            # Use phoneme_length * hop_length as approximate audio length
+            # Each phoneme frame = 20ms = 320 samples at 16kHz
             item["phoneme_length"] = phoneme_length
+            item["audio_length"] = phoneme_length * 320  # Approximate audio samples
             new_samples.append(item)
 
+        logger.info("Loaded %d valid samples out of %d", len(new_samples), len(self.samples))
         samples = new_samples
 
         # Filter by length
