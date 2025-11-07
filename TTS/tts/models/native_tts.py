@@ -721,8 +721,9 @@ class NativeTTS(BaseTTS):
         # Compute LINEAR spectrogram (not mel) - used for posterior encoder
         batch["spec"] = wav_to_spec(wav, ac.fft_size, ac.hop_length, ac.win_length, center=False)
 
-        # Compute spectrogram frame lengths
-        batch["spec_lens"] = (batch["spec"].shape[2] * batch["waveform_rel_lens"]).int()
+        # In Native TTS, spec length should match phoneme length (both at 20ms frames)
+        # Use token_lens as spec_lens since they're pre-aligned
+        batch["spec_lens"] = batch["token_lens"]
 
         # Zero the padding frames
         batch["spec"] = batch["spec"] * sequence_mask(batch["spec_lens"]).unsqueeze(1)
