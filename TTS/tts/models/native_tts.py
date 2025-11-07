@@ -538,12 +538,19 @@ class NativeTTS(BaseTTS):
         o = self.waveform_decoder(z_slice, g=g)
 
         # Ground truth waveform segment
+        expected_wav_len = self.spec_segment_size * self.config.audio.hop_length
         wav_seg = segment(
             waveform,
             slice_ids * self.config.audio.hop_length,
-            self.spec_segment_size * self.config.audio.hop_length,
+            expected_wav_len,
             pad_short=True,
         )
+
+        # Trim decoder output to match expected length (HiFiGAN can produce slightly different lengths)
+        if o.shape[-1] > expected_wav_len:
+            o = o[..., :expected_wav_len]
+        elif o.shape[-1] < expected_wav_len:
+            o = torch.nn.functional.pad(o, (0, expected_wav_len - o.shape[-1]))
 
         return {
             "model_outputs": o,

@@ -100,7 +100,7 @@ The script automatically:
 
 Checkpoints and logs saved to:
 ```
-recipes/ljspeech/vits_tts/native_tts_ljspeech_freevc_vctk-{date}/
+/workspace/coqui-ai-TTS/recipes/ljspeech/vits_tts/native_tts_ljspeech_freevc_vctk-{date}/
   ├── checkpoint_*.pth     # Model checkpoints
   ├── config.json          # Training config
   ├── events.out.tfevents  # TensorBoard logs
