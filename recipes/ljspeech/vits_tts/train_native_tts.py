@@ -25,8 +25,11 @@ def get_hardware_config(vram_gb=None, vcpus=None):
         vram_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
     if vcpus is None:
         vcpus = os.cpu_count() or 8
-    batch_size = 48
-    num_workers = 8
+
+    # Original formula: batch_size based on VRAM (conservative for discriminator training)
+    batch_size = 2 * max(8, int(vram_gb - 2))
+    num_workers = min(16, max(4, vcpus // 4))
+
     return {
         "num_gpus": num_gpus,
         "batch_size": batch_size,
@@ -172,7 +175,7 @@ def main():
         batch_group_size=5,
         num_loader_workers=hw_config["num_workers"],
         num_eval_loader_workers=hw_config["eval_workers"],
-        run_eval=False,  # Disable eval to debug crash
+        run_eval=True,
         test_delay_epochs=-1,
         epochs=1000,
         text_cleaner=None,
