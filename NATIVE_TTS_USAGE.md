@@ -79,7 +79,8 @@ pod(accent_changer)# cd /workspace/coqui-ai-TTS/recipes/ljspeech/vits_tts
 
 pod(accent_changer)# python train_native_tts.py \
   --data_path /workspace/augmented_data \
-  --vram 24  # Optional: GPU VRAM in GB for auto batch sizing
+  --vram 24 \
+  --use_transfer_learning # 300 -> 100 epochs, 72 -> 24 hours, 115 -> 40 start mel loss
 ```
 
 ### Training Configuration

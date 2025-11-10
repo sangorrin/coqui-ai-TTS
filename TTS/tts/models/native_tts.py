@@ -957,6 +957,107 @@ class NativeTTS(BaseTTS):
 
         return [VitsDiscriminatorLoss(self.config), VitsGeneratorLoss(self.config)]
 
+    def load_checkpoint(
+        self, config, checkpoint_path, eval=False, strict=True, cache=False, vits_transfer=False
+    ):  # pylint: disable=unused-argument, redefined-builtin
+        """Load model checkpoint with optional VITS transfer learning.
+
+        Args:
+            config: Model configuration (unused, kept for API compatibility)
+            checkpoint_path (str): Path to checkpoint file
+            eval (bool): If True, set model to eval mode
+            strict (bool): If True, require exact key matching in state_dict
+            cache (bool): If True, cache checkpoint file locally
+            vits_transfer (bool): If True, perform transfer learning from VITS checkpoint
+        """
+        from TTS.utils.io import load_fsspec  # pylint: disable=import-outside-toplevel
+
+        state = load_fsspec(checkpoint_path, map_location=torch.device("cpu"), cache=cache)
+
+        # Handle VITS → Native TTS transfer learning
+        if vits_transfer:
+            logger.info("Loading VITS checkpoint for transfer learning to Native TTS")
+
+            # Map VITS keys to Native TTS keys
+            vits_state = state.get("model", state)
+            native_state = {}
+
+            # Component mapping (VITS → Native TTS)
+            # Only transfer components with identical architectures
+            component_mapping = {
+                # Posterior encoder (100% identical architecture)
+                "posterior_encoder.": "posterior_encoder.",
+                "enc.": "posterior_encoder.",  # Alternative VITS naming
+                # Flow (100% identical architecture)
+                "flow.": "flow.",
+                # Waveform decoder (100% identical architecture)
+                "waveform_decoder.": "waveform_decoder.",
+                "dec.": "waveform_decoder.",  # Alternative VITS naming
+                # Discriminator (100% identical architecture)
+                "disc.": "disc.",
+            }
+
+            # Components to skip (not compatible with Native TTS)
+            skip_prefixes = [
+                "text_enc.",     # TextEncoder doesn't exist in Native TTS (replaced by PriorEncoder)
+                "dp.",           # Duration Predictor doesn't exist in Native TTS (uses MFA alignments)
+                "emb_g.",        # Speaker embeddings not used (Native TTS uses pre-computed ECAPA)
+                "prior_encoder." # PriorEncoder is new in Native TTS, doesn't exist in VITS
+            ]
+
+            # Transfer compatible components only
+            transferred_keys = []
+            skipped_keys = []
+
+            for vits_key, vits_value in vits_state.items():
+                # Skip incompatible components
+                if any(vits_key.startswith(prefix) for prefix in skip_prefixes):
+                    skipped_keys.append(f"{vits_key} (incompatible component)")
+                    continue
+
+                # Check if key belongs to a transferable component
+                transferred = False
+                for vits_prefix, native_prefix in component_mapping.items():
+                    if vits_key.startswith(vits_prefix):
+                        # Map key to Native TTS naming
+                        native_key = vits_key.replace(vits_prefix, native_prefix, 1)
+                        native_state[native_key] = vits_value
+                        transferred_keys.append(f"{vits_key} → {native_key}")
+                        transferred = True
+                        break
+
+                if not transferred:
+                    skipped_keys.append(f"{vits_key} (unknown component)")
+
+            logger.info("Transfer learning summary:")
+            logger.info("  Transferred %d parameters", len(transferred_keys))
+            logger.info("  Skipped %d parameters", len(skipped_keys))
+
+            # Load the mapped state (strict=False allows missing keys for F0 components)
+            missing_keys, unexpected_keys = self.load_state_dict(native_state, strict=False)
+
+            if missing_keys:
+                logger.info("Missing keys (will be randomly initialized):")
+                for key in missing_keys[:10]:  # Show first 10
+                    logger.info("  - %s", key)
+                if len(missing_keys) > 10:
+                    logger.info("  ... and %d more", len(missing_keys) - 10)
+
+            if unexpected_keys:
+                logger.warning("Unexpected keys in checkpoint:")
+                for key in unexpected_keys[:10]:
+                    logger.warning("  - %s", key)
+                if len(unexpected_keys) > 10:
+                    logger.warning("  ... and %d more", len(unexpected_keys) - 10)
+
+        else:
+            # Standard checkpoint loading (Native TTS → Native TTS)
+            self.load_state_dict(state["model"], strict=strict)
+
+        if eval:
+            self.eval()
+            assert not self.training
+
     @staticmethod
     def init_from_config(config: NativeTTSAudioConfig):
         """Initiate model from config."""

@@ -122,6 +122,11 @@ def main():
     )
     parser.add_argument("--vram", type=float, default=None, help="GPU VRAM in GB")
     parser.add_argument("--vcpus", type=int, default=None, help="Number of CPU cores")
+    parser.add_argument(
+        "--use_transfer_learning",
+        action="store_true",
+        help="Use transfer learning from pretrained VITS LJSpeech model (auto-downloads if needed)",
+    )
     args = parser.parse_args()
 
     hw_config = get_hardware_config(vram_gb=args.vram, vcpus=args.vcpus)
@@ -195,6 +200,41 @@ def main():
 
     # Initialize model
     model = NativeTTS(config, ap)
+
+    # Load VITS checkpoint for transfer learning if requested
+    if args.use_transfer_learning:
+        print("=" * 80)
+        print("TRANSFER LEARNING ENABLED")
+        print("=" * 80)
+        print("Downloading pretrained VITS LJSpeech model (if not cached)...")
+
+        from TTS.utils.manage import ModelManager
+        manager = ModelManager()
+
+        # Download VITS checkpoint (auto-cached in ~/.local/share/tts/)
+        vits_checkpoint_path, _, model_info = manager.download_model("tts_models/en/ljspeech/vits")
+
+        print(f"\nVITS Model Info:")
+        print(f"  Description: {model_info.get('description', 'N/A')}")
+        print(f"  Author: {model_info.get('author', 'N/A')}")
+        print(f"  Checkpoint: {vits_checkpoint_path}")
+        print()
+
+        # Load with transfer learning
+        print("Transferring weights from VITS to Native TTS...")
+        model.load_checkpoint(
+            config=config,
+            checkpoint_path=str(vits_checkpoint_path),
+            eval=False,
+            strict=False,
+            vits_transfer=True,
+        )
+        print("=" * 80)
+        print("Transfer learning completed!")
+        print("Expected: Mel loss should start at ~30-40 (vs ~115 from scratch)")
+        print("Convergence: ~50-100 epochs (vs 200-300 from scratch)")
+        print("=" * 80)
+        print()
 
     # Train
     trainer = Trainer(
