@@ -990,27 +990,23 @@ class NativeTTS(BaseTTS):
                 "enc.": "posterior_encoder.",  # Alternative VITS naming
                 # Flow (100% identical architecture)
                 "flow.": "flow.",
-                # Waveform decoder (100% identical architecture)
-                "waveform_decoder.": "waveform_decoder.",
-                "dec.": "waveform_decoder.",  # Alternative VITS naming
                 # Discriminator (100% identical architecture)
                 "disc.": "disc.",
             }
 
             # Components to skip (not compatible with Native TTS)
             skip_prefixes = [
-                "text_enc.",     # TextEncoder doesn't exist in Native TTS (replaced by PriorEncoder)
-                "dp.",           # Duration Predictor doesn't exist in Native TTS (uses MFA alignments)
-                "emb_g.",        # Speaker embeddings not used (Native TTS uses pre-computed ECAPA)
-                "prior_encoder." # PriorEncoder is new in Native TTS, doesn't exist in VITS
+                "text_enc.",        # TextEncoder doesn't exist in Native TTS (replaced by PriorEncoder)
+                "dp.",              # Duration Predictor doesn't exist in Native TTS (uses MFA alignments)
+                "emb_g.",           # Speaker embeddings not used (Native TTS uses pre-computed ECAPA)
+                "prior_encoder.",   # PriorEncoder is new in Native TTS, doesn't exist in VITS
+                "waveform_decoder.", # Different upsample kernel sizes (VITS: [16,16,4,4] vs Native: [16,16,10,2])
+                "dec.",             # Alternative naming for waveform_decoder
             ]
 
             # Transfer compatible components only
             transferred_keys = []
             skipped_keys = []
-
-            # Get current model state for shape validation
-            current_state = self.state_dict()
 
             for vits_key, vits_value in vits_state.items():
                 # Skip incompatible components
@@ -1024,24 +1020,8 @@ class NativeTTS(BaseTTS):
                     if vits_key.startswith(vits_prefix):
                         # Map key to Native TTS naming
                         native_key = vits_key.replace(vits_prefix, native_prefix, 1)
-
-                        # Validate shape compatibility before transferring
-                        if native_key in current_state:
-                            if current_state[native_key].shape != vits_value.shape:
-                                # Shape mismatch - skip this parameter
-                                skipped_keys.append(
-                                    f"{vits_key} → {native_key} (shape mismatch: "
-                                    f"VITS {vits_value.shape} vs Native TTS {current_state[native_key].shape})"
-                                )
-                            else:
-                                # Shapes match - transfer this parameter
-                                native_state[native_key] = vits_value
-                                transferred_keys.append(f"{vits_key} → {native_key}")
-                        else:
-                            # Key doesn't exist in current model - still try to transfer (will show as unexpected)
-                            native_state[native_key] = vits_value
-                            transferred_keys.append(f"{vits_key} → {native_key}")
-
+                        native_state[native_key] = vits_value
+                        transferred_keys.append(f"{vits_key} → {native_key}")
                         transferred = True
                         break
 
