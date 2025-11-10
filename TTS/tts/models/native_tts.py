@@ -970,7 +970,7 @@ class NativeTTS(BaseTTS):
             cache (bool): If True, cache checkpoint file locally
             vits_transfer (bool): If True, perform transfer learning from VITS checkpoint
         """
-        from TTS.utils.io import load_fsspec  # pylint: disable=import-outside-toplevel
+        from trainer.io import load_fsspec  # pylint: disable=import-outside-toplevel
 
         state = load_fsspec(checkpoint_path, map_location=torch.device("cpu"), cache=cache)
 

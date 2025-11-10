@@ -25,13 +25,6 @@ pod# cd /dataset
 pod# cp -R augmented_data /workspace
 ```
 
-Clone the forked coqui repository with the accent_changer branch:
-```bash
-pod# cd /workspace
-pod# git clone -b accent_changer https://github.com/sangorrin/coqui-ai-TTS.git
-pod# cd coqui-ai-TTS
-```
-
 Install system dependencies:
 ```bash
 pod# apt-get update && apt-get upgrade -y
@@ -41,7 +34,14 @@ pod# apt-get install -y --no-install-recommends \
     screen tree
 ```
 
-Install Python packages:
+Clone the forked coqui repository with the accent_changer branch:
+```bash
+pod# cd /workspace
+pod# git clone -b accent_changer https://github.com/sangorrin/coqui-ai-TTS.git
+pod# cd coqui-ai-TTS
+```
+
+Install Coqui python dependencies:
 ```bash
 pod# uv venv /workspace/accent_changer --system-site-packages
 pod# source /workspace/accent_changer/bin/activate
