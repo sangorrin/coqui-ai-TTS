@@ -1020,6 +1020,7 @@ class NativeTTS(BaseTTS):
 
                 # Check if key belongs to a transferable component
                 transferred = False
+                shape_mismatch = False
                 for vits_prefix, native_prefix in component_mapping.items():
                     if vits_key.startswith(vits_prefix):
                         # Map key to Native TTS naming
@@ -1032,11 +1033,13 @@ class NativeTTS(BaseTTS):
                                     f"{vits_key} → {native_key} (shape mismatch: "
                                     f"VITS {vits_value.shape} vs Native TTS {current_state[native_key].shape})"
                                 )
-                                transferred = True  # Mark as handled
+                                shape_mismatch = True
                                 break
 
-                        native_state[native_key] = vits_value
-                        transferred_keys.append(f"{vits_key} → {native_key}")
+                        # Only transfer if no shape mismatch
+                        if not shape_mismatch:
+                            native_state[native_key] = vits_value
+                            transferred_keys.append(f"{vits_key} → {native_key}")
                         transferred = True
                         break
 
