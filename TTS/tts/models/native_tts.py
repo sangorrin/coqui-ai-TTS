@@ -1028,24 +1028,22 @@ class NativeTTS(BaseTTS):
                         # Validate shape compatibility before transferring
                         if native_key in current_state:
                             if current_state[native_key].shape != vits_value.shape:
+                                # Shape mismatch - skip this parameter
                                 skipped_keys.append(
                                     f"{vits_key} → {native_key} (shape mismatch: "
                                     f"VITS {vits_value.shape} vs Native TTS {current_state[native_key].shape})"
                                 )
-                                transferred = True  # Mark as handled
-                                break
                             else:
-                                # Shapes match, transfer this parameter
+                                # Shapes match - transfer this parameter
                                 native_state[native_key] = vits_value
                                 transferred_keys.append(f"{vits_key} → {native_key}")
-                                transferred = True
-                                break
                         else:
-                            # Key not in current model (will be caught as unexpected)
+                            # Key doesn't exist in current model - still try to transfer (will show as unexpected)
                             native_state[native_key] = vits_value
                             transferred_keys.append(f"{vits_key} → {native_key}")
-                            transferred = True
-                            break
+
+                        transferred = True
+                        break
 
                 if not transferred:
                     skipped_keys.append(f"{vits_key} (unknown component)")
