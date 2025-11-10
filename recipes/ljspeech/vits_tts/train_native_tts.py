@@ -127,6 +127,12 @@ def main():
         action="store_true",
         help="Use transfer learning from pretrained VITS LJSpeech model (auto-downloads if needed)",
     )
+    parser.add_argument(
+        "--continue_path",
+        type=str,
+        default=None,
+        help="Path to training folder to continue training from (loads latest checkpoint)",
+    )
     args = parser.parse_args()
 
     hw_config = get_hardware_config(vram_gb=args.vram, vcpus=args.vcpus)
@@ -238,7 +244,7 @@ def main():
 
     # Train
     trainer = Trainer(
-        TrainerArgs(),
+        TrainerArgs(continue_path=args.continue_path),
         config,
         output_path,
         model=model,
