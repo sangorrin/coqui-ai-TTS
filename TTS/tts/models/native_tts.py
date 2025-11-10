@@ -1009,6 +1009,9 @@ class NativeTTS(BaseTTS):
             transferred_keys = []
             skipped_keys = []
 
+            # Get current model state for shape validation
+            current_state = self.state_dict()
+
             for vits_key, vits_value in vits_state.items():
                 # Skip incompatible components
                 if any(vits_key.startswith(prefix) for prefix in skip_prefixes):
@@ -1021,6 +1024,17 @@ class NativeTTS(BaseTTS):
                     if vits_key.startswith(vits_prefix):
                         # Map key to Native TTS naming
                         native_key = vits_key.replace(vits_prefix, native_prefix, 1)
+
+                        # Validate shape compatibility before transferring
+                        if native_key in current_state:
+                            if current_state[native_key].shape != vits_value.shape:
+                                skipped_keys.append(
+                                    f"{vits_key} → {native_key} (shape mismatch: "
+                                    f"VITS {vits_value.shape} vs Native TTS {current_state[native_key].shape})"
+                                )
+                                transferred = True  # Mark as handled
+                                break
+
                         native_state[native_key] = vits_value
                         transferred_keys.append(f"{vits_key} → {native_key}")
                         transferred = True
