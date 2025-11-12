@@ -139,69 +139,95 @@ Follow the guide at: https://github.com/sangorrin/ac_playground/blob/main/DEPREC
 
 **Step 1: Download ARCTIC**
 
-```bash
-# ARCTIC dataset: L2 English speakers
-mkdir -p data/ARCTIC
-cd data/ARCTIC
+1. Fill the request form: https://psi.engr.tamu.edu/l2-arctic-corpus/ (Download section).
+2. In the email, choose **“L2-ARCTIC-V5.0 (everything packed)”** to get the full corpus (all 24 speakers).
+[Alt] I have a copy on my drive.
 
-# Download speakers (example: Arabic, Hindi, Korean, Mandarin, Spanish, Vietnamese)
-for speaker in ABA ASI BWC SKA TNI TLV; do
-  wget http://www.festvox.org/cmu_arctic/cmu_us_${speaker}_arctic.tar.bz2
-  tar -xjf cmu_us_${speaker}_arctic.tar.bz2
-  rm cmu_us_${speaker}_arctic.tar.bz2
-done
+```bash
+pod# mkdir -p /dataset/data/ARCTIC
+pod# cd /dataset/data/ARCTIC
+pod# pip install gdown
+pod# gdown --id 1q_Ijuz3jd3Rd2B11mB2dA_-upPeDLkxl
+pod# unzip -q l2arctic_release_v5.0.zip
+pod# rm l2arctic_release_v5.0.zip
+pod# for z in *.zip; do unzip -q "$z"; done && rm -f *.zip
 ```
 
 **Step 2: Resample to 16kHz**
 
 ```bash
-mkdir -p data/ARCTIC_16k
+pod# mkdir -p /dataset/data/ARCTIC_16k_speakers /dataset/arctic_data/wavs_16k
 
-python resample_to_16k.py \
-  data/ARCTIC \
-  data/ARCTIC_16k \
-  --pattern "*/wav/*.wav" \
-  --jobs 32
+# Resample each speaker folder separately (to speaker subfolders first)
+pod# for speaker_dir in /dataset/data/ARCTIC/*/; do
+  speaker=$(basename "$speaker_dir")
+  # Skip files (LICENSE, README, etc.)
+  if [[ -d "$speaker_dir" && "$speaker" != "suitcase_corpus" ]]; then
+    echo "Resampling speaker: $speaker"
+    python /workspace/ac_playground/resample_to_16k.py \
+      "$speaker_dir/wav" \
+      "/dataset/data/ARCTIC_16k_speakers/$speaker" \
+      --jobs 8
+  fi
+done
+
+# Flatten: Move all files to single directory with speaker suffix
+pod# for speaker_dir in /dataset/data/ARCTIC_16k_speakers/*/; do
+  speaker=$(basename "$speaker_dir")
+  for wav_file in "$speaker_dir"/*.wav; do
+    if [[ -f "$wav_file" ]]; then
+      basename=$(basename "$wav_file" .wav)
+      mv "$wav_file" "/dataset/arctic_data/wavs_16k/${basename}_${speaker}.wav"
+    fi
+  done
+done
+
+# Cleanup storage
+pod# rm -rf /dataset/data/ARCTIC_16k_speakers
 ```
 
 **Step 3: Extract F0 (20ms frames)**
 
 ```bash
-python f0_20ms_batch.py \
-  --in-wav-dir data/ARCTIC_16k \
-  --out-dir data/ARCTIC_f0_features \
+pod# python /workspace/ac_playground/f0_20ms_batch.py \
+  --in-wav-dir /dataset/arctic_data/wavs_16k \
+  --out-dir /dataset/arctic_data/f0_features \
   --workers 32
 ```
 
 **Step 4: MFA Alignment (20ms frames)**
 
 ```bash
+pod# conda activate aligner
+
 # Prepare MFA corpus (creates .wav + .lab files from ARCTIC transcripts)
-python mfa_prepare_arctic.py \
-  --arctic-root data/ARCTIC \
-  --wav-dir data/ARCTIC_16k \
-  --out-corpus data/ARCTIC_mfa_corpus
+pod (aligner)# python /workspace/ac_playground/mfa_prepare.py \
+  --arctic-root /dataset/data/ARCTIC \
+  --wav-dir /dataset/arctic_data/wavs_16k \
+  --out-corpus /dataset/arctic_data/mfa_corpus \
+  --workers 32 --link hard
 
 # Run MFA + upsample to 20ms
-export OMP_NUM_THREADS=1
-export MKL_NUM_THREADS=1
-ulimit -n 4096
+pod (aligner)# export OMP_NUM_THREADS=1
+pod (aligner)# export MKL_NUM_THREADS=1
+pod (aligner)# ulimit -n 4096
 
-python mfa_upsample_batch.py \
-  --corpus-dir data/ARCTIC_mfa_corpus \
+pod (aligner)# python /workspace/ac_playground/mfa_upsample_batch.py \
+  --corpus-dir /dataset/arctic_data/mfa_corpus \
   --dict english_us_mfa \
   --acoustic english_mfa \
-  --out-align data/ARCTIC_mfa_alignments_raw \
-  --out-frames data/ARCTIC_mfa_phones_20ms \
+  --out-align /dataset/arctic_data/mfa_alignments_raw \
+  --out-frames /dataset/arctic_data/mfa_phones_20ms \
   --hop-ms 20 \
   --jobs 32
 
 # Fix lengths to match F0
-python fix_phones_lengths.py \
-  --phones-dir data/ARCTIC_mfa_phones_20ms \
-  --f0-dir data/ARCTIC_f0_features \
-  --out-dir data/ARCTIC_mfa_alignments \
+pod (aligner)# python /workspace/ac_playground/fix_phones_lengths.py \
+  --phones-dir /dataset/arctic_data/mfa_phones_20ms \
+  --f0-dir /dataset/arctic_data/f0_features \
+  --out-dir /dataset/arctic_data/mfa_alignments \
   --workers 32
+pod (aligner)# conda deactivate
 ```
 
 **Step 5: Extract Speaker Embeddings**
@@ -209,8 +235,8 @@ python fix_phones_lengths.py \
 ```bash
 # Extract one embedding per ARCTIC speaker
 python speaker_embed_batch.py \
-  --wav-dir data/ARCTIC_16k \
-  --out-dir data/ARCTIC_speaker_embeddings \
+  --wav-dir /dataset/arctic_data/wavs_16k \
+  --out-dir /dataset/arctic_data/speaker_embeddings \
   --batch-size 64 \
   --device cuda
 ```
@@ -219,10 +245,10 @@ python speaker_embed_batch.py \
 
 ```bash
 python check_features_20ms.py \
-  --wav-dir data/ARCTIC_16k \
-  --phones-dir data/ARCTIC_mfa_alignments \
-  --f0-dir data/ARCTIC_f0_features \
-  --spk-embeds-dir data/ARCTIC_speaker_embeddings \
+  --wav-dir /dataset/arctic_data/wavs_16k \
+  --phones-dir /dataset/arctic_data/mfa_alignments \
+  --f0-dir /dataset/arctic_data/f0_features \
+  --spk-embeds-dir /dataset/arctic_data/speaker_embeddings \
   --report arctic_sanity_report.csv \
   --workers 32
 ```
@@ -239,10 +265,10 @@ for speaker in ABA ASI BWC SKA TNI TLV; do
   python infer_native_tts.py \
     --checkpoint /path/to/checkpoint_100000.pth \
     --config /path/to/config.json \
-    --mfa-dir /workspace/data/ARCTIC_mfa_alignments/${speaker} \
-    --f0-dir /workspace/data/ARCTIC_f0_features/${speaker} \
-    --speaker-emb /workspace/data/ARCTIC_speaker_embeddings/${speaker}.npy \
-    --out-dir /workspace/data/ARCTIC_native_generated/${speaker} \
+    --mfa-dir /dataset/arctic_data/mfa_alignments \
+    --f0-dir /dataset/arctic_data/f0_features \
+    --speaker-emb /dataset/arctic_data/speaker_embeddings/${speaker}.npy \
+    --out-dir /dataset/arctic_data/native_generated_${speaker} \
     --device cuda
 done
 ```
@@ -250,16 +276,13 @@ done
 ### Output Structure
 
 ```
-/workspace/data/ARCTIC_native_generated/
-  ├── ABA/
-  │   ├── arctic_a0001.wav  # Native-accented, ABA's voice
-  │   ├── arctic_a0002.wav
-  │   └── ...
-  ├── ASI/
-  ├── BWC/
-  ├── SKA/
-  ├── TNI/
-  └── TLV/
+/dataset/arctic_data/
+├── wavs_16k/arctic_a0001_ABA.wav  # Flat structure with speaker suffix
+├── f0_features/arctic_a0001_ABA.npy
+├── mfa_alignments/arctic_a0001_ABA.npy
+├── speaker_embeddings/ABA.npy
+├── native_generated_ABA/arctic_a0001_ABA.wav  # Generated output
+└── ... (per speaker)
 ```
 
 ### Ground Truth Dataset
@@ -267,12 +290,12 @@ done
 You now have paired data for AC training:
 
 **Non-native (original ARCTIC):**
-- Audio: `data/ARCTIC_16k/<speaker>/arctic_a0001.wav`
+- Audio: `arctic_data/wavs_16k/arctic_a0001_ABA.wav`
 - Text: ARCTIC transcripts
 - Accent: Non-native (Arabic, Hindi, etc.)
 
 **Native-accented (generated by Native TTS):**
-- Audio: `data/ARCTIC_native_generated/<speaker>/arctic_a0001.wav`
+- Audio: `arctic_data/native_generated_ABA/arctic_a0001_ABA.wav`
 - Text: Same as original
 - Accent: Native-like
 - Voice: Preserves original speaker identity
