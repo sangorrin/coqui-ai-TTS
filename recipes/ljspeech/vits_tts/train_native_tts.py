@@ -28,14 +28,15 @@ def get_hardware_config(vram_gb=None, vcpus=None):
 
     # Original formula: batch_size based on VRAM (conservative for discriminator training)
     batch_size = 2 * max(8, int(vram_gb - 2))
-    num_workers = min(16, max(4, vcpus // 4))
+    # Increase num_workers to reduce GPU starvation (especially after eval)
+    num_workers = min(32, max(8, vcpus // 4))
 
     return {
         "num_gpus": num_gpus,
         "batch_size": batch_size,
         "eval_batch_size": max(8, batch_size // 2),
         "num_workers": num_workers,
-        "eval_workers": max(2, num_workers // 3),
+        "eval_workers": max(4, num_workers // 2),
     }
 
 
