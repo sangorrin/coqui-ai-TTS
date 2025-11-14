@@ -201,9 +201,19 @@ def main():
         raise ValueError(f"Expected 192-dim ECAPA embedding, got {speaker_emb.shape[0]}")
     print(f"✅ Loaded speaker embedding: shape {speaker_emb.shape}")
 
-    # Collect input files
-    mfa_files = sorted(Path(args.mfa_dir).glob("*.npy"))
+    # Determine speaker suffix
+    speaker_suffix = Path(args.speaker_emb).stem
+    print(f"Using speaker suffix: {speaker_suffix}")
+
+    # Collect input files - only for this speaker
+    all_mfa_files = sorted(Path(args.mfa_dir).glob("*.npy"))
+    mfa_files = [f for f in all_mfa_files if f.stem.endswith(f"_{speaker_suffix}")]
     f0_files = [Path(args.f0_dir) / f.name for f in mfa_files]
+
+    if not mfa_files:
+        print(f"❌ Error: No MFA files found for speaker {speaker_suffix}")
+        print(f"   Looking for files ending with: _{speaker_suffix}.npy")
+        return
 
     # Validate all F0 files exist
     missing_f0 = [f for f in f0_files if not f.exists()]
@@ -232,7 +242,7 @@ def main():
         if wav is None:
             continue
 
-        out_path = Path(args.out_dir) / f"{basename}.wav"
+        out_path = Path(args.out_dir) / f"{basename}_{speaker_suffix}.wav"
         sf.write(out_path, wav, ap.sample_rate)
         saved_count += 1
 
