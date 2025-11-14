@@ -242,7 +242,8 @@ def main():
         if wav is None:
             continue
 
-        out_path = Path(args.out_dir) / f"{basename}_{speaker_suffix}.wav"
+        # basename already includes speaker suffix (e.g., arctic_a0001_ABA)
+        out_path = Path(args.out_dir) / f"{basename}.wav"
         sf.write(out_path, wav, ap.sample_rate)
         saved_count += 1
 
