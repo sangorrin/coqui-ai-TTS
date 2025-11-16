@@ -31,8 +31,12 @@ pod# screen -S session
 ```
 
 To avoid the network volume being the bottleneck, copy the data to the SSD.
-```
+```bash
 pod# cp -R /dataset/augmented_data /workspace/
+
+# Try this next time
+cd /dataset/augmented_data
+find . -type f | parallel -j 32 'mkdir -p /workspace/augmented_data/$(dirname {}) && cp {} /workspace/augmented_data/{}'
 ```
 
 Clone the forked coqui repository with the accent_changer branch:
@@ -92,22 +96,17 @@ After training Native TTS on native-accented data, use it to generate native-acc
 cd /workspace/coqui-ai-TTS/recipes/ljspeech/vits_tts
 
 # Process all ARCTIC speakers
-for speaker_file in /dataset/arctic_data/speaker_embeddings/*.npy; do
-  python infer_native_tts.py \
-    --checkpoint /dataset/checkpoint.pth \
-    --config /dataset/config.json \
-    --mfa-dir /dataset/arctic_data/mfa_alignments \
-    --f0-dir /dataset/arctic_data/f0_features \
-    --speaker-emb "$speaker_file" \
-    --out-dir /dataset/arctic_data/native_generated \
-    --device cuda
-done
+python infer_native_tts.py \
+  --checkpoint /dataset/checkpoint.pth \
+  --config /dataset/config.json \
+  --mfa-dir /dataset/arctic_data/mfa_alignments \
+  --f0-dir /dataset/arctic_data/f0_features \
+  --speaker-emb-dir /dataset/arctic_data/speaker_embeddings \
+  --out-dir /dataset/arctic_data/native_generated \
+  --device cuda
 ```
 
-**Output**: Generated files will be saved with speaker suffixes (e.g., `arctic_a0001_ABA.wav`, `arctic_a0001_ASI.wav`) in `/dataset/arctic_data/native_generated/`.
-
-### Paired Dataset Structure
-
+Paired Dataset Structure
 ```
 /dataset/arctic_data/
 ├── wavs_16k/                    # Non-native (original ARCTIC)
@@ -117,56 +116,6 @@ done
     ├── arctic_a0001_ABA.wav
     └── ...
 ```
-
-This paired dataset will be used in Phase 3 to train the Accent Conversion transformer.
-
----
-
-## Troubleshooting
-
-### Common Issues
-
-**1. Length mismatch between MFA and F0**
-
-Error: `MFA length 245 != F0 length 246`
-
-Solution: Run `fix_phones_lengths.py` to pad phoneme vectors:
-```bash
-python fix_phones_lengths.py \
-  --phones-dir ARCTIC_mfa_phones_20ms \
-  --f0-dir ARCTIC_f0_features \
-  --out-dir ARCTIC_mfa_alignments \
-  --workers 32
-```
-
-**2. Speaker embedding dimension mismatch**
-
-Error: `Expected 192-dim ECAPA embedding, got 512`
-
-Solution: Use ECAPA-TDNN from SpeechBrain (not other models):
-```python
-# In speaker_embed_batch.py, ensure:
-from speechbrain.pretrained import EncoderClassifier
-classifier = EncoderClassifier.from_hparams(
-    source="speechbrain/spkrec-ecapa-voxceleb",
-    savedir="pretrained_models/spkrec-ecapa-voxceleb"
-)
-```
-
-**3. Out of memory during inference**
-
-Solution: Process files one at a time (current implementation) or reduce model to CPU:
-```bash
-python infer_native_tts.py ... --device cpu
-```
-
-**4. Phoneme vocabulary mismatch**
-
-Error: `Index out of range in embedding layer`
-
-Solution: Ensure the same MFA dictionary was used for training and inference. Check `phoneme_map.json` in both datasets.
-
----
 
 ## Next Steps
 

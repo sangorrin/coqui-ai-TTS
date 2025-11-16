@@ -161,10 +161,10 @@ def main():
         help="Directory containing F0 feature .npy files",
     )
     parser.add_argument(
-        "--speaker-emb",
+        "--speaker-emb-dir",
         type=str,
         required=True,
-        help="Path to speaker embedding .npy file (192-dim ECAPA)",
+        help="Directory containing speaker embedding .npy files (192-dim ECAPA)",
     )
     parser.add_argument(
         "--out-dir",
@@ -194,60 +194,59 @@ def main():
     print("Loading model...")
     model, ap = load_model(args.checkpoint, args.config, args.device)
 
-    # Load speaker embedding
-    print(f"Loading speaker embedding from {args.speaker_emb}")
-    speaker_emb = np.load(args.speaker_emb)
-    if speaker_emb.shape[0] != 192:
-        raise ValueError(f"Expected 192-dim ECAPA embedding, got {speaker_emb.shape[0]}")
-    print(f"✅ Loaded speaker embedding: shape {speaker_emb.shape}")
+    # Loop over all speaker embeddings in the directory
+    emb_dir = Path(args.speaker_emb_dir)
+    emb_files = sorted([f for f in emb_dir.glob('*.npy')])
+    if not emb_files:
+        print(f"❌ Error: No speaker embedding files found in {emb_dir}")
+        return
 
-    # Determine speaker suffix
-    speaker_suffix = Path(args.speaker_emb).stem
-    print(f"Using speaker suffix: {speaker_suffix}")
-
-    # Collect input files - only for this speaker
     all_mfa_files = sorted(Path(args.mfa_dir).glob("*.npy"))
-    mfa_files = [f for f in all_mfa_files if f.stem.endswith(f"_{speaker_suffix}")]
-    f0_files = [Path(args.f0_dir) / f.name for f in mfa_files]
-
-    if not mfa_files:
-        print(f"❌ Error: No MFA files found for speaker {speaker_suffix}")
-        print(f"   Looking for files ending with: _{speaker_suffix}.npy")
-        return
-
-    # Validate all F0 files exist
-    missing_f0 = [f for f in f0_files if not f.exists()]
-    if missing_f0:
-        print(f"❌ Error: {len(missing_f0)} F0 files missing")
-        for f in missing_f0[:5]:
-            print(f"   Missing: {f}")
-        return
-
-    print(f"Found {len(mfa_files)} files to process")
-
-    # Run inference
-    print("Running inference...")
-    wavs, basenames = infer_batch(
-        model,
-        [str(f) for f in mfa_files],
-        [str(f) for f in f0_files],
-        speaker_emb,
-        args.device,
-    )
-
-    # Save waveforms
-    print(f"Saving waveforms to {args.out_dir}")
-    saved_count = 0
-    for wav, basename in zip(wavs, basenames):
-        if wav is None:
+    print(f"Found {len(emb_files)} speaker embeddings.")
+    total_saved = 0
+    for emb_file in emb_files:
+        speaker_suffix = emb_file.stem
+        print(f"\n=== Processing speaker: {speaker_suffix} ===")
+        try:
+            speaker_emb = np.load(emb_file)
+        except Exception as e:
+            print(f"❌ Error loading embedding {emb_file}: {e}")
             continue
-
-        # basename already includes speaker suffix (e.g., arctic_a0001_ABA)
-        out_path = Path(args.out_dir) / f"{basename}.wav"
-        sf.write(out_path, wav, ap.sample_rate)
-        saved_count += 1
-
-    print(f"✅ Done! Saved {saved_count}/{len(wavs)} waveforms to {args.out_dir}")
+        if speaker_emb.shape[0] != 192:
+            print(f"❌ Error: Expected 192-dim ECAPA embedding, got {speaker_emb.shape[0]}")
+            continue
+        # Collect input files for this speaker
+        mfa_files = [f for f in all_mfa_files if f.stem.endswith(f"_{speaker_suffix}")]
+        f0_files = [Path(args.f0_dir) / f.name for f in mfa_files]
+        if not mfa_files:
+            print(f"❌ No MFA files found for speaker {speaker_suffix}")
+            continue
+        missing_f0 = [f for f in f0_files if not f.exists()]
+        if missing_f0:
+            print(f"❌ Error: {len(missing_f0)} F0 files missing for speaker {speaker_suffix}")
+            for f in missing_f0[:5]:
+                print(f"   Missing: {f}")
+            continue
+        print(f"Found {len(mfa_files)} files to process for {speaker_suffix}")
+        # Run inference
+        wavs, basenames = infer_batch(
+            model,
+            [str(f) for f in mfa_files],
+            [str(f) for f in f0_files],
+            speaker_emb,
+            args.device,
+        )
+        # Save waveforms
+        saved_count = 0
+        for wav, basename in zip(wavs, basenames):
+            if wav is None:
+                continue
+            out_path = Path(args.out_dir) / f"{basename}.wav"
+            sf.write(out_path, wav, ap.sample_rate)
+            saved_count += 1
+        print(f"✅ Done! Saved {saved_count}/{len(wavs)} waveforms for {speaker_suffix} to {args.out_dir}")
+        total_saved += saved_count
+    print(f"\n=== All done! Total waveforms saved: {total_saved}")
 
 
 if __name__ == "__main__":
