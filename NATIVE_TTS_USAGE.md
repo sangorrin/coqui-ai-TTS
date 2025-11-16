@@ -69,12 +69,82 @@ pod(accent_changer)# python train_native_tts.py \
 ```
 
 Checkpoints and logs saved to:
-```
-/workspace/coqui-ai-TTS/recipes/ljspeech/vits_tts/native_tts_ljspeech_freevc_vctk-{date}/
+```bash
+ls /workspace/coqui-ai-TTS/recipes/ljspeech/vits_tts/native_tts_ljspeech_freevc_vctk-{date}/
   ├── checkpoint_*.pth     # Model checkpoints
   ├── config.json          # Training config
   ├── events.out.tfevents  # TensorBoard logs
   └── ...
+```
+
+Intermediate monitoring
+```bash
+pod(accent_changer)# ln -s /workspace/coqui-ai-TTS/recipes/ljspeech/vits_tts/native_tts_ljspeech_freevc_vctk-November-16-2025_01+59AM-b35930a9/best_model.pth checkpoint.pth
+pod(accent_changer)# ln -s /workspace/coqui-ai-TTS/recipes/ljspeech/vits_tts/native_tts_ljspeech_freevc_vctk-November-16-2025_01+59AM-b35930a9/config.json config.json
+
+# Get some random ARCTIC inputs for monitoring the quality of the generated audio
+pod(accent_changer)# python << 'EOF'
+import random
+from pathlib import Path
+import shutil
+
+# Source directories
+phones_dir = Path('/dataset/arctic_data/mfa_alignments')
+f0_dir = Path('/dataset/arctic_data/f0_features')
+emb_dir = Path('/dataset/arctic_data/speaker_embeddings')
+wavs_dir = Path('/dataset/arctic_data/wavs_16k')
+out_dir = Path('/workspace/arctic_infer_samples')
+
+(out_dir / 'mfa_alignments').mkdir(parents=True, exist_ok=True)
+(out_dir / 'f0_features').mkdir(exist_ok=True)
+(out_dir / 'speaker_embeddings').mkdir(exist_ok=True)
+(out_dir / 'wavs_16k').mkdir(exist_ok=True)
+
+# Get all utterance files (excluding phoneme_map)
+utt_files = [f for f in phones_dir.glob('*.npy') if f.stem != 'phoneme_map']
+sampled = random.sample(utt_files, min(10, len(utt_files)))
+
+print(f'Preparing {len(sampled)} ARCTIC samples for inference in {out_dir}\n')
+
+for ph_file in sampled:
+    utt = ph_file.stem
+    f0_file = f0_dir / f'{utt}.npy'
+    wav_file = wavs_dir / f'{utt}.wav'
+    # Copy phoneme and f0 files
+    shutil.copy(ph_file, out_dir / 'mfa_alignments' / f'{utt}.npy')
+    if f0_file.exists():
+        shutil.copy(f0_file, out_dir / 'f0_features' / f'{utt}.npy')
+    else:
+        print(f'Warning: F0 file missing for {utt}')
+    # Copy input wav for comparison
+    if wav_file.exists():
+        shutil.copy(wav_file, out_dir / 'wavs_16k' / f'{utt}.wav')
+    else:
+        print(f'Warning: Input wav missing for {utt}')
+    # Copy speaker embedding (by speaker suffix)
+    spk = utt.split('_')[-1]
+    emb_file = emb_dir / f'{spk}.npy'
+    if emb_file.exists():
+        shutil.copy(emb_file, out_dir / 'speaker_embeddings' / f'{spk}.npy')
+    else:
+        print(f'Warning: Speaker embedding missing for {spk}')
+
+print('Done.')
+EOF
+
+pod(accent_changer)# python infer_native_tts.py \
+  --checkpoint /workspace/checkpoint.pth \
+  --config /workspace/config.json \
+  --mfa-dir /workspace/arctic_infer_samples/mfa_alignments \
+  --f0-dir /workspace/arctic_infer_samples/f0_features \
+  --speaker-emb-dir /workspace/arctic_infer_samples/speaker_embeddings \
+  --out-dir /workspace/arctic_infer_samples/native_generated \
+  --device cuda
+
+local# rsync -avz  runpod-1:/workspace/arctic_infer_samples .
+local# cd arctic_infer_samples
+local# afplay wavs_16k/arctic_b0511_ASI.wav
+local# afplay native_generated/arctic_b0511_ASI.wav # check audio quality
 ```
 
 Estimations:
