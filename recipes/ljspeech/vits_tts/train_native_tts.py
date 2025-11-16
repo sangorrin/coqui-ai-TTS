@@ -178,7 +178,7 @@ def main():
         num_eval_loader_workers=hw_config["eval_workers"],
         run_eval=True,
         test_delay_epochs=-1,
-        epochs=1000,
+        epochs=100,
         text_cleaner=None,
         use_phonemes=False,
         phoneme_language=None,

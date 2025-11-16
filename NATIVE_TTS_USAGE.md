@@ -14,17 +14,6 @@ This guide covers **Phase 1** and **Phase 2**.
 
 ## Runpod Setup
 
-Deploy a Runpod instance with an RTX 4090 GPU and attach the network
-volume at `/dataset` by modifying the template. Set the pod SSD disk
-size to 200GB. SSH into the instance and copy the augmented data (13GB) from
-the network volume (`/dataset/augmented_data`) to the SSD (`/workspace`).
-It takes about 10 minutes.
-```bash
-pod# ssh runpod-1
-pod# cd /dataset
-pod# cp -R augmented_data /workspace
-```
-
 Install system dependencies:
 ```bash
 pod# apt-get update && apt-get upgrade -y
@@ -32,6 +21,18 @@ pod# apt-get install -y --no-install-recommends \
     gcc g++ make python3 python3-dev \
     espeak-ng libsndfile1-dev libc-dev \
     screen tree
+```
+
+Start screen session
+```bash
+pod# screen -S session
+  # Detach: Ctrl + A, then D
+  # Reattach: screen -r session
+```
+
+To avoid the network volume being the bottleneck, copy the data to the SSD.
+```
+pod# cp -R /dataset/augmented_data /workspace/
 ```
 
 Clone the forked coqui repository with the accent_changer branch:
@@ -48,56 +49,20 @@ pod# source /workspace/accent_changer/bin/activate
 pod# uv pip install -e .[all]
 ```
 
-Start screen session and activate the environment.
-```bash
-pod# screen -S session
-  # Detach: Ctrl + A, then D
-  # Reattach: screen -r session
-pod# source /workspace/accent_changer/bin/activate
-```
-
-Perform a sanity check
-```bash
-pod(accent_changer)# cd /workspace
-pod(accent_changer)# git clone https://github.com/sangorrin/ac_playground.git
-pod(accent_changer)# python /workspace/ac_playground/check_features_20ms.py \
-    --wav-dir /workspace/augmented_data/wavs_16k \
-    --phones-dir /workspace/augmented_data/mfa_alignments \
-    --f0-dir /workspace/augmented_data/f0_features \
-    --spk-embeds-dir /workspace/augmented_data/speaker_embeddings \
-    --report /workspace/sanity_report.csv \
-    --limit 0 \
-    --workers 32
-```
-
 ## Phase 1: Training Native TTS
-
-### Training Command
-
-```bash
-pod(accent_changer)# cd /workspace/coqui-ai-TTS/recipes/ljspeech/vits_tts
-
-pod(accent_changer)# python train_native_tts.py \
-  --data_path /workspace/augmented_data \
-  --vram 24 \
-  --use_transfer_learning # 300 -> 100 epochs, 72 -> 24 hours, 115 -> 40 start mel loss
-```
-
-### Training Configuration
 
 The script automatically:
 - Calculates `num_chars` from `phoneme_map.json`
 - Configures batch size based on GPU VRAM (default: auto-detect)
 - Sets up multi-speaker training with ECAPA embeddings
 
-**Key hyperparameters** (edit in `train_native_tts.py` if needed):
-- `batch_size`: Auto-configured based on VRAM
-- `eval_batch_size`: Half of batch_size
-- `num_workers`: Auto-configured based on CPU cores
-- `lr_gen`: 2e-4 (generator learning rate)
-- `lr_disc`: 2e-4 (discriminator learning rate)
-
-### Monitoring Training
+```bash
+pod(accent_changer)# cd /workspace/coqui-ai-TTS/recipes/ljspeech/vits_tts
+pod(accent_changer)# python train_native_tts.py \
+  --data_path /workspace/augmented_data \
+  --vram 24 \
+  --use_transfer_learning
+```
 
 Checkpoints and logs saved to:
 ```
@@ -108,13 +73,7 @@ Checkpoints and logs saved to:
   └── ...
 ```
 
-View training progress with TensorBoard:
-```bash
-tensorboard --logdir recipes/ljspeech/vits_tts/
-```
-
-### Training Duration
-
+Estimations:
 - **RTX 4090**: ~24-48 hours for 100k steps
 - **Convergence**: Monitor mel reconstruction loss and audio quality
 - **Recommended**: Train for at least 100k steps
