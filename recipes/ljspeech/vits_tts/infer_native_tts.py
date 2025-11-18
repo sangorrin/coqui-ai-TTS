@@ -80,6 +80,7 @@ def infer_batch(
     f0_files: list[str],
     speaker_emb: np.ndarray,
     device: str = "cuda",
+    inference_noise_scale: float = 0.5,
 ):
     """Run inference on a batch of files.
 
@@ -124,7 +125,11 @@ def infer_batch(
 
         # Run inference (no gradient needed)
         with torch.no_grad():
+            # Temporarily modify inference noise scale for clearer speech
+            original_noise_scale = model.inference_noise_scale
+            model.inference_noise_scale = inference_noise_scale  # Use parameter value
             outputs = model.inference(x, aux_input=aux_input)
+            model.inference_noise_scale = original_noise_scale  # Restore original
 
         # Extract waveform
         wav = outputs["model_outputs"].squeeze().cpu().numpy()
@@ -179,10 +184,10 @@ def main():
         help="Device to use for inference (cuda/cpu)",
     )
     parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=1,
-        help="Batch size (currently only 1 supported)",
+        "--inference-noise-scale",
+        type=float,
+        default=0.5,
+        help="Noise scale for inference (lower = clearer speech, default 0.5)",
     )
 
     args = parser.parse_args()
@@ -235,6 +240,7 @@ def main():
             [str(f) for f in f0_files],
             speaker_emb,
             args.device,
+            args.inference_noise_scale,
         )
         # Save waveforms
         saved_count = 0
