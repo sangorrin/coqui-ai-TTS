@@ -167,8 +167,8 @@ cd /workspace/coqui-ai-TTS/recipes/ljspeech/vits_tts
 
 # Process all ARCTIC speakers
 python infer_native_tts.py \
-  --checkpoint /dataset/checkpoint.pth \
-  --config /dataset/config.json \
+  --checkpoint /workspace/checkpoint.pth \
+  --config /workspace/config.json \
   --mfa-dir /dataset/arctic_data/mfa_alignments \
   --f0-dir /dataset/arctic_data/f0_features \
   --speaker-emb-dir /dataset/arctic_data/speaker_embeddings \
